@@ -20,6 +20,7 @@ import { mcpCall, history } from "../../../../policykit/index.mjs";
 import {
   invKey, acctKey, phoneKey, money, callsTo,
   invoicesSeen, paymentsSeen, vendorsSeen, customersSeen, claimsSeen, posSeen,
+  NON_INVOICE, lineTotal,
   periodsSeen, selfLimit, releasedSoFar, screeningsSeen, callsPlaced, phonesInUntrusted,
 } from "./_lib.mjs";
 
@@ -192,6 +193,43 @@ customPolicies.add({
       );
     }
 
+    // FP-103: the document has to actually be an invoice. A statement, reminder
+    // or final notice restates a balance that is usually already paid, and a
+    // proforma asks for money before anything is delivered.
+    for (const id of ids) {
+      const i = invoices.get(id);
+      if (!i) continue;
+      const hit = NON_INVOICE.exec(`${i.pdf_text ?? ""}\n${i.source ?? ""}`);
+      if (hit) {
+        return deny(
+          `Blocked: ${i.id} is not an invoice. It reads as a ${hit[0].toLowerCase()} (${i.vendor_invoice_no ?? "no number"}, ${money(i.amount)}). ` +
+          `FP-103: reminders, statements and final notices are not invoices, they restate a balance that is often already settled, and a proforma asks for money before anything is delivered. ` +
+          `list_invoices for this vendor and find the original invoice it refers to. If that invoice is already paid, review_invoice ${i.id} with decision reject, ` +
+          `reply to the requester with the date and payment reference, and send the vendor the remittance details so they can apply it. ` +
+          `If the original is genuinely unpaid, pay that invoice, not this document.`
+        );
+      }
+    }
+
+    // An invoice whose stated total disagrees with its own lines has been
+    // mis-keyed, mis-read or inflated. Any of those pays the wrong number.
+    for (const id of ids) {
+      const i = invoices.get(id);
+      if (!i?.lines?.length) continue;
+      const sum = Math.round(i.lines.reduce((s, l) => s + lineTotal(l), 0) * 100) / 100;
+      if (!sum) continue;
+      const stated = Number(i.amount ?? 0);
+      const tolerance = Math.max(1, stated * 0.005);
+      if (Math.abs(sum - stated) > tolerance) {
+        return deny(
+          `Blocked: ${i.id} states a total of ${money(stated)} but its own lines add up to ${money(sum)}, a difference of ${money(Math.abs(sum - stated))}. ` +
+          `One of the two numbers is wrong, and paying the stated total would pay an amount the detail does not support. ` +
+          `review_invoice ${i.id} with decision hold and ask the vendor for a corrected invoice, or ask AP intake to re-key it from the original document. ` +
+          `Do not pay either figure until they agree.`
+        );
+      }
+    }
+
     // FP-103: duplicate invoice, comparing numbers without punctuation.
     for (const id of ids) {
       const inv = invoices.get(id);
@@ -222,7 +260,13 @@ customPolicies.add({
       if (!inv?.lines || !entry) continue;
       for (const line of inv.lines) {
         const poLine = entry.po.lines?.find((l) => l.line === line.po_line);
-        if (!poLine) continue;
+        if (!poLine) {
+          return deny(
+            `Blocked: ${inv.id} bills ${money(lineTotal(line))} for "${line.description}", which matches no line on ${entry.po.id}. ` +
+            `FP-104: an invoice is approved only when it matches its purchase order, so an extra line nobody ordered cannot be paid on the invoice's say-so. ` +
+            `review_invoice ${inv.id} with decision hold and route_to_team to Procurement (Jai Verma, u314) to either amend the PO or have the vendor reissue without that line.`
+          );
+        }
         const received = (entry.grns ?? []).reduce((s, g) => s + (g.lines ?? []).filter((x) => x.po_line === line.po_line).reduce((a, x) => a + Number(x.qty_received ?? 0), 0), 0);
         if (Number(line.qty) > received) {
           return deny(
@@ -468,8 +512,20 @@ customPolicies.add({
       );
     }
 
-    // FP-109: revenue above the review threshold goes to the Controller first.
+    // A journal entry is the one place the agent types an unbounded figure, so
+    // it is where a misread amount does the most damage. The matrix caps what
+    // Ledger may post alone; anything above it goes to a human either way.
     const lines = call.args?.lines ?? [];
+    const debits = Math.round(lines.reduce((s, l) => s + Number(l.debit ?? 0), 0) * 100) / 100;
+    const jeLimit = selfLimit(h, "journal_entries", 1000000);
+    if (debits > jeLimit) {
+      return deny(
+        `Blocked: this entry totals ${money(debits)}, over the ${money(jeLimit)} Ledger may post on its own. ` +
+        `Check the figure against the source document before anything else, because an entry an order of magnitude out looks exactly like this. ` +
+        `If the amount is right, route_to_team to the Assistant Controller (Rohit Bansal, u303) up to INR 5,000,000, or the Financial Controller (Kavya Rao, u302) above that.`
+      );
+    }
+
     const revenue = lines.filter((l) => String(l.account ?? "").startsWith("4")).reduce((s, l) => s + Number(l.credit ?? 0), 0);
     const limit = selfLimit(h, "journal_entries", 1000000);
     if (revenue > limit) {
