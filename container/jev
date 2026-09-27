@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Helper for the isolated buildathon container (`jev-box`). Run from anywhere:
+#   container/jev build             build the image and (re)create the container
+#   container/jev login             log Claude Code in, inside the container only (/login, then /exit)
+#   container/jev connect           failproofai config with the key from failproofai/.env (key never on a command line)
+#   container/jev setup             buildathon setup (trust agent folders) + doctor
+#   container/jev doctor            buildathon doctor
+#   container/jev status            failproofai config --status + daemon state
+#   container/jev test [scenario]   offline policy rig (no LLM)
+#   container/jev run itsm ITSM-02  a real agent run (Claude Code + Haiku 4.5, policies enforced, session uploaded)
+#   container/jev replay itsm       replay the newest run through your current policies
+#   container/jev live              (re)start the live trace viewer -> http://localhost:4777
+#   container/jev shell             bash inside the container
+#   container/jev logs              daemon + systemctl-shim logs
+#   container/jev down              stop the container (state is kept)
+#   container/jev reset             remove the container AND its home volume (logs out, wipes failproofai config)
+set -euo pipefail
+
+IMAGE=jev-buildathon:local
+BOX=jev-box
+VOLUME=jev-home
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # ~/Desktop/code/buildathon
+KEYFILE="${JEV_KEYFILE:-$ROOT/failproofai/.env}"
+
+up() {
+  if ! docker container inspect "$BOX" >/dev/null 2>&1; then
+    docker run -d --init --name "$BOX" --restart unless-stopped \
+      -p 127.0.0.1:4777:4777 \
+      -v "$ROOT:/work" -v "$VOLUME:/home/node" -w /work "$IMAGE" >/dev/null
+  elif [ "$(docker inspect -f '{{.State.Running}}' "$BOX")" != true ]; then
+    docker start "$BOX" >/dev/null
+  fi
+}
+
+ex() {
+  up
+  local tty=()
+  [ -t 0 ] && [ -t 1 ] && tty=(-it)
+  docker exec ${tty[@]+"${tty[@]}"} -u node -w /work "$BOX" "$@"
+}
+
+cmd="${1:-shell}"; shift || true
+case "$cmd" in
+  build)
+    DOCKER_BUILDKIT=1 docker build --secret "id=npmrc,src=$HOME/.npmrc" -t "$IMAGE" "$ROOT/container"
+    docker rm -f "$BOX" >/dev/null 2>&1 || true
+    up; echo "jev-box is up on the new image" ;;
+  login)   ex claude ;;
+  connect)
+    [ -f "$KEYFILE" ] || { echo "No key file at $KEYFILE" >&2; exit 2; }
+    up
+    # docker reads the file; the value exists only in this exec's environment.
+    docker exec -u node -w /work --env-file "$KEYFILE" "$BOX" \
+      sh -c 'export FAILPROOFAI_CLOUD_TOKEN="${FAILPROOFAI_CLOUD_TOKEN:-${KEY:-}}"; unset KEY; exec failproofai config "$@"' _ "$@" ;;
+  setup)   ex node jev-buildathon/bin/buildathon.mjs setup; ex node jev-buildathon/bin/buildathon.mjs doctor ;;
+  doctor)  ex node jev-buildathon/bin/buildathon.mjs doctor ;;
+  status)  ex failproofai config --status; ex systemctl status "failproofaid@node" || true ;;
+  test)    ex node harness/scenario.mjs itsm "$@" ;;
+  run)     ex node jev-buildathon/bin/buildathon.mjs run "$@" ;;
+  replay)  ex node harness/replay.mjs "${1:-itsm}" latest ;;
+  shell)   ex bash ;;
+  live)    up
+           docker exec -u node "$BOX" sh -c 'pkill -f "[h]arness/live/server.mjs" || true'
+           docker exec -d -u node -w /work "$BOX" sh -c 'exec node harness/live/server.mjs >>/tmp/live.log 2>&1'
+           sleep 1; echo "live traces: http://localhost:4777" ;;
+  logs)    ex sh -c 'tail -n 40 /tmp/failproofaid@node.log 2>/dev/null; echo "--- shim"; tail -n 20 /tmp/systemctl-shim.log 2>/dev/null' ;;
+  down)    docker stop "$BOX" >/dev/null && echo stopped ;;
+  reset)   docker rm -f "$BOX" >/dev/null 2>&1 || true; docker volume rm "$VOLUME" ;;
+  *) sed -n '2,18p' "$0"; exit 2 ;;
+esac

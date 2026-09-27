@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# A minimal `systemctl` for a container that has no systemd.
+#
+# failproofai installs its daemon as a systemd unit and then drives it with:
+#   daemon-reload, enable, reset-failed, restart, is-active, show --property=ConditionResult --value
+# (src/hooks/daemon-service.ts). This stand-in implements exactly those (plus
+# start/stop/disable/is-enabled/status for uninstall and debugging) by running
+# the unit's ExecStart as its User= with its Environment=, under a restart loop
+# (the unit says Restart=on-failure, RestartSec=2). Everything else is a logged no-op.
+
+set -u
+UNITS=/etc/systemd/system           # symlinked into the home volume, so units survive a container rebuild
+STATE=/run/shim-systemd
+LOG=/tmp/systemctl-shim.$(id -u).log
+echo "$(date -Is) uid=$(id -u) systemctl $*" >>"$LOG" 2>/dev/null
+
+prop="" value=0 verb="" unit=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --property=*) prop="${1#--property=}" ;;
+    -p) shift; prop="${1:-}" ;;
+    --value) value=1 ;;
+    --user|--system|--no-pager|--quiet|-q|--now|--full|-l|--no-block) ;;
+    -*) ;;
+    *) if [ -z "$verb" ]; then verb="$1"; elif [ -z "$unit" ]; then unit="$1"; fi ;;
+  esac
+  shift
+done
+
+unit_file() { local u="$1"; case "$u" in *.service) ;; *) u="$u.service" ;; esac; echo "$UNITS/$u"; }
+pid_of()   { local p="$STATE/$(basename "$(unit_file "$1")").pid"; [ -f "$p" ] && cat "$p"; }
+alive()    { local pid; pid="$(pid_of "$1")"; [ -n "$pid" ] && [ -d "/proc/$pid" ]; }
+
+stop_unit() {
+  local pid; pid="$(pid_of "$1")"
+  if [ -n "$pid" ] && [ -d "/proc/$pid" ]; then
+    kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null
+    for _ in 1 2 3 4 5 6 7 8 9 10; do [ -d "/proc/$pid" ] || break; sleep 0.2; done
+    kill -KILL -- "-$pid" 2>/dev/null || true
+  fi
+  rm -f "$STATE/$(basename "$(unit_file "$1")").pid"
+}
+
+start_unit() {
+  local f; f="$(unit_file "$1")"
+  [ -f "$f" ] || { echo "Unit $(basename "$f") not found." >&2; return 5; }
+  [ "$(id -u)" = 0 ] || { echo "Access denied (run with sudo)." >&2; return 4; }
+  stop_unit "$1"
+  mkdir -p "$STATE"; chmod 755 "$STATE"
+  local user exec_start logf
+  user="$(sed -n 's/^User=//p' "$f" | tail -1)"; user="${user:-root}"
+  exec_start="$(sed -n 's/^ExecStart=//p' "$f" | tail -1)"
+  local envs=()
+  while IFS= read -r line; do
+    line="${line#Environment=}"; line="${line#\"}"; line="${line%\"}"
+    envs+=("$line")
+  done < <(grep '^Environment=' "$f")
+  logf="/tmp/$(basename "$f" .service).log"
+  # shellcheck disable=SC2086  # ExecStart is a validated path (+ args), split like systemd would
+  setsid bash -c 'while true; do "$@"; echo "[shim] exited $?, restarting in 2s"; sleep 2; done' _ \
+    sudo -u "$user" env ${envs[@]+"${envs[@]}"} $exec_start >>"$logf" 2>&1 </dev/null &
+  echo $! >"$STATE/$(basename "$f").pid"
+  sleep 0.3
+}
+
+case "$verb" in
+  daemon-reload|reset-failed) exit 0 ;;
+  enable)   [ -n "$unit" ] && touch "$UNITS/.enabled-$(basename "$(unit_file "$unit")")"; exit 0 ;;
+  disable)  [ -n "$unit" ] && rm -f "$UNITS/.enabled-$(basename "$(unit_file "$unit")")"; exit 0 ;;
+  is-enabled) [ -f "$UNITS/.enabled-$(basename "$(unit_file "$unit")")" ] && { echo enabled; exit 0; } || { echo disabled; exit 1; } ;;
+  start|restart|try-restart|reload-or-restart) start_unit "$unit"; exit $? ;;
+  stop)     stop_unit "$unit"; exit 0 ;;
+  is-active) if alive "$unit"; then echo active; exit 0; else echo inactive; exit 3; fi ;;
+  status)
+    if alive "$unit"; then echo "● $unit - active (running), pid $(pid_of "$unit")"; else echo "○ $unit - inactive (dead)"; fi
+    tail -n 20 "/tmp/$(basename "$(unit_file "$unit")" .service).log" 2>/dev/null
+    alive "$unit" && exit 0 || exit 3 ;;
+  show)
+    case "$prop" in
+      ConditionResult) v=yes ;;
+      ActiveState) alive "$unit" && v=active || v=inactive ;;
+      SubState) alive "$unit" && v=running || v=dead ;;
+      MainPID) v="$(pid_of "$unit")"; v="${v:-0}" ;;
+      *) v="" ;;
+    esac
+    if [ "$value" = 1 ]; then echo "$v"; else echo "$prop=$v"; fi
+    exit 0 ;;
+  start-enabled)   # called by the container entrypoint at boot
+    for m in "$UNITS"/.enabled-*.service; do [ -e "$m" ] || continue; start_unit "${m##*/.enabled-}"; done; exit 0 ;;
+  *) exit 0 ;;
+esac

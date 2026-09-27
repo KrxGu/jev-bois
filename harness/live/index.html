@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jev Live Traces</title>
+<style>
+:root{
+  --bg:#F3F4F7; --panel:#FFFFFF; --panel-2:#EEF0F4; --ink:#141922; --muted:#5E6A7B; --line:#DCE0E7;
+  --accent:#6246EA; --accent-soft:#ECE8FF;
+  --ok:#15845A; --ok-soft:#DDF3E8; --deny:#CF3A2D; --deny-soft:#FBE3E0; --warn:#A96A06; --warn-soft:#F9EDD5;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0D1015; --panel:#141920; --panel-2:#1B222B; --ink:#E5E9EF; --muted:#94A0B2; --line:#27303B;
+  --accent:#A08CFF; --accent-soft:#231E3F;
+  --ok:#43C98C; --ok-soft:#10301F; --deny:#FF6E61; --deny-soft:#3A1613; --warn:#F0B54A; --warn-soft:#382A0E;
+  color-scheme:dark;
+}}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:14px/1.5 var(--sans);display:grid;grid-template-rows:auto 1fr}
+button,input{font:inherit;color:inherit}
+code,.mono{font-family:var(--mono);font-size:12.5px}
+
+header{display:flex;flex-wrap:wrap;align-items:center;gap:10px 22px;padding:10px 18px;border-bottom:1px solid var(--line);background:var(--panel)}
+.brand{font-weight:700;letter-spacing:-.01em;font-size:15px;display:flex;align-items:center;gap:8px}
+.brand .glyph{font-family:var(--mono);color:var(--accent)}
+.conn{font-family:var(--mono);font-size:12px;padding:2px 8px;border-radius:99px;border:1px solid var(--line);color:var(--muted)}
+.conn.on{color:var(--ok);border-color:var(--ok)}
+.stats{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12.5px;color:var(--muted)}
+.stats b{color:var(--ink);font-variant-numeric:tabular-nums;font-weight:600}
+.toggles{margin-left:auto;display:flex;gap:14px;font-size:12.5px;color:var(--muted)}
+.toggles label{display:flex;align-items:center;gap:5px;cursor:pointer}
+.toggles input{accent-color:var(--accent)}
+
+main{display:grid;grid-template-columns:320px 1fr;min-height:0}
+@media (max-width:760px){main{grid-template-columns:1fr;grid-template-rows:40% 60%}}
+aside{border-right:1px solid var(--line);overflow-y:auto;background:var(--panel)}
+.s-item{display:grid;gap:3px;padding:10px 14px;border-bottom:1px solid var(--line);cursor:pointer;border-left:3px solid transparent}
+.s-item:hover{background:var(--panel-2)}
+.s-item.sel{background:var(--accent-soft);border-left-color:var(--accent)}
+.s-top{display:flex;align-items:center;gap:7px;min-width:0}
+.s-title{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.s-meta{display:flex;gap:10px;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.s-meta .d{color:var(--deny)} .s-meta .i{color:var(--warn)} .s-meta .j{color:var(--accent)}
+.chip{font-family:var(--mono);font-size:11px;padding:0 6px;border-radius:4px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.chip.agent{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,transparent)}
+.pulse{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none;box-shadow:0 0 0 0 var(--ok);animation:pulse 1.4s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 60%,transparent)}100%{box-shadow:0 0 0 7px transparent}}
+@media (prefers-reduced-motion:reduce){.pulse{animation:none}}
+
+section#trace{overflow-y:auto;padding:18px 22px 60px}
+.t-head{display:grid;gap:6px;margin-bottom:16px}
+.t-head h1{margin:0;font-size:18px;letter-spacing:-.01em}
+.t-sub{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px;color:var(--muted)}
+.t-sub b{color:var(--ink);font-variant-numeric:tabular-nums}
+.empty{max-width:560px;margin:10vh auto;color:var(--muted);display:grid;gap:10px;text-align:left}
+.empty code{background:var(--panel-2);padding:2px 6px;border-radius:4px;color:var(--ink)}
+
+.tl{display:grid;gap:8px;position:relative}
+.row{display:grid;grid-template-columns:28px 1fr;gap:8px;align-items:start}
+.gut{font-family:var(--mono);text-align:center;padding-top:7px;font-size:14px;color:var(--muted)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;min-width:0}
+.bubble{padding:9px 12px;white-space:pre-wrap;word-break:break-word}
+.bubble.user{background:var(--panel-2)}
+.lbl{font-family:var(--mono);font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-bottom:2px}
+
+.call{border-left:3px solid var(--line)}
+.call.ok{border-left-color:var(--ok)} .call.blocked{border-left-color:var(--deny)} .call.instructed{border-left-color:var(--warn)} .call.error{border-left-color:var(--warn)}
+.c-head{display:flex;align-items:center;gap:10px;padding:8px 12px;cursor:pointer;min-width:0}
+.c-tool{font-family:var(--mono);font-weight:600;font-size:13px;white-space:nowrap}
+.c-args{font-family:var(--mono);font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+.pill{font-family:var(--mono);font-size:11px;padding:1px 7px;border-radius:99px;white-space:nowrap}
+.pill.ok{background:var(--ok-soft);color:var(--ok)} .pill.blocked{background:var(--deny-soft);color:var(--deny)}
+.pill.instructed{background:var(--warn-soft);color:var(--warn)} .pill.error{background:var(--warn-soft);color:var(--warn)}
+.pill.pending{background:var(--panel-2);color:var(--muted)}
+.pill.exp-ok{background:var(--ok-soft);color:var(--ok)} .pill.exp-bad{background:var(--deny-soft);color:var(--deny)}
+.c-body{border-top:1px solid var(--line);padding:8px 12px;display:grid;gap:8px}
+pre.json{margin:0;background:var(--panel-2);padding:8px 10px;border-radius:6px;font-family:var(--mono);font-size:12px;white-space:pre-wrap;word-break:break-word;max-height:320px;overflow:auto}
+
+.dec{border:1px solid var(--line);border-radius:6px;padding:8px 10px;display:grid;gap:6px;margin:0 12px 8px}
+.dec.deny{border-color:color-mix(in srgb,var(--deny) 55%,transparent);background:color-mix(in srgb,var(--deny-soft) 55%,transparent)}
+.dec.instruct{border-color:color-mix(in srgb,var(--warn) 55%,transparent);background:color-mix(in srgb,var(--warn-soft) 55%,transparent)}
+.dec.error{border-color:color-mix(in srgb,var(--warn) 55%,transparent)}
+.d-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.d-pol{font-family:var(--mono);font-size:12px;font-weight:600}
+.d-reason{font-size:13px}
+.ms{font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:auto;font-variant-numeric:tabular-nums}
+.jev{display:grid;gap:5px;padding-top:2px}
+.jq{display:grid;grid-template-columns:minmax(110px,170px) 1fr 44px;gap:10px;align-items:center}
+.jq .qid{font-family:var(--mono);font-size:12px;color:var(--accent);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.jq .bar{height:8px;border-radius:99px;background:var(--panel-2);position:relative;overflow:hidden}
+.jq .bar i{position:absolute;inset:0 auto 0 0;background:var(--accent);border-radius:99px}
+.jq .bar.hot i{background:var(--deny)}
+.jq .p{font-family:var(--mono);font-size:12px;text-align:right;font-variant-numeric:tabular-nums}
+.jq .instr{grid-column:1/-1;font-size:12px;color:var(--muted);margin-top:-2px}
+.jev-err{font-size:12px;color:var(--deny);font-family:var(--mono)}
+.res{font-size:12px}
+.res.blocked{color:var(--deny)}
+.note{font-size:12.5px;color:var(--warn)}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="glyph">⊘</span> Jev live traces</div>
+  <span class="conn" id="conn">connecting…</span>
+  <div class="stats" id="stats"></div>
+  <div class="toggles">
+    <label><input type="checkbox" id="follow" checked> follow newest</label>
+    <label><input type="checkbox" id="onlyInter"> interjections only</label>
+    <label><input type="checkbox" id="showRig" checked> rig runs</label>
+  </div>
+</header>
+<main>
+  <aside id="list"></aside>
+  <section id="trace"></section>
+</main>
+<script>
+const S = new Map();            // sessionId -> session
+let selected = null, dirty = true;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const open = new Set();         // expanded call ids
+const tms = (ts) => (ts ? Date.parse(ts) : Date.now());
+
+function sess(id, ev = {}) {
+  let s = S.get(id);
+  if (!s) {
+    s = { id, agent: ev.agent ?? "?", source: ev.source ?? "claude", start: tms(ev.ts), last: tms(ev.ts), title: "", items: [], calls: new Map(), pending: [], n: { calls: 0, blocked: 0, instructed: 0, jev: 0, jevMs: [] } };
+    S.set(id, s);
+  }
+  if (ev.agent && s.agent === "?") s.agent = ev.agent;
+  if (ev.ts) s.last = Math.max(s.last, tms(ev.ts));
+  return s;
+}
+
+// exact match on tool + clipped args; the loose (tool-only, nearest in time) match is only
+// tried once a decision has waited ~2.5 s without its call showing up
+function attach(s, d, loose = false) {
+  const calls = [...s.calls.values()].reverse();
+  let c = calls.find((c) => c.tool === d.tool && c.key === d.key);
+  if (!c && loose) {
+    const t = tms(d.ts);
+    c = calls.filter((c) => c.tool === d.tool).sort((a, b) => Math.abs(tms(a.ts) - t) - Math.abs(tms(b.ts) - t))[0];
+  }
+  if (!c) return false;
+  c.decisions.push(d);
+  return true;
+}
+
+function countDecision(s, d) {
+  if (d.decision === "deny") s.n.blocked++;
+  if (d.decision === "instruct") s.n.instructed++;
+  for (const j of d.jev ?? []) { s.n.jev++; if (j.ms != null) s.n.jevMs.push(j.ms); }
+}
+
+function onEvent(ev) {
+  if (ev.type === "reset") { S.clear(); open.clear(); dirty = true; return; }
+  if (!ev.session) return;
+  const s = sess(ev.session, ev);
+  switch (ev.type) {
+    case "session": break;
+    case "prompt":
+      if (!s.title) s.title = ev.text.replace(/\s+/g, " ").slice(0, 120);
+      s.items.push({ kind: "prompt", text: ev.text, ts: ev.ts }); break;
+    case "text": s.items.push({ kind: "text", text: ev.text, ts: ev.ts }); break;
+    case "call": {
+      const c = { kind: "call", id: ev.id, tool: ev.tool, args: ev.args, key: ev.key, ts: ev.ts, expect: ev.expect, decisions: [], result: null };
+      s.calls.set(ev.id, c); s.items.push(c); s.n.calls++;
+      s.pending = s.pending.filter((d) => !attach(s, d));
+      break;
+    }
+    case "result": {
+      const c = s.calls.get(ev.id);
+      if (c) c.result = ev; else s.items.push({ kind: "orphan-result", ...ev });
+      if (ev.blocked && c && !c.decisions.some((d) => d.decision === "deny")) s.n.blocked++;
+      break;
+    }
+    case "decision": {
+      const d = { ...ev, at: Date.now() };
+      countDecision(s, d);
+      if (d.decision === "deny") { /* counted */ }
+      if (!attach(s, d)) s.pending.push(d);
+      break;
+    }
+  }
+  dirty = true;
+}
+
+// decisions whose call never showed up (e.g. rig runs without call events) become their own rows
+setInterval(() => {
+  const now = Date.now();
+  for (const s of S.values()) {
+    const stale = s.pending.filter((d) => now - d.at > 2500);
+    if (!stale.length) continue;
+    s.pending = s.pending.filter((d) => now - d.at <= 2500);
+    for (const d of stale) if (!attach(s, d, true)) s.items.push({ kind: "call", id: "d" + d.seq, tool: d.tool, args: safeParse(d.args), key: d.args, ts: d.ts, decisions: [d], result: null, orphan: true });
+    dirty = true;
+  }
+}, 700);
+const safeParse = (s) => { try { return JSON.parse(s); } catch { return s; } };
+
+function status(c) {
+  if (c.result?.blocked || c.decisions.some((d) => d.decision === "deny")) return ["blocked", "⊘", "blocked"];
+  if (c.decisions.some((d) => d.decision === "instruct")) return ["instructed", "✎", "instructed"];
+  if (c.result?.isError) return ["error", "✗", "tool error"];
+  if (c.result) return ["ok", "•", "executed"];
+  if (c.orphan) return ["pending", "◇", "decision only"];
+  return ["pending", "◌", "pending"];
+}
+
+const ago = (t) => { const s = Math.max(0, Math.round((Date.now() - t) / 1000)); return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.round(s / 60)}m ago` : `${Math.round(s / 3600)}h ago`; };
+const median = (a) => { if (!a.length) return null; const b = [...a].sort((x, y) => x - y); return b[Math.floor(b.length / 2)]; };
+const visible = () => [...S.values()].filter((s) => $("showRig").checked || s.source !== "rig").sort((a, b) => b.last - a.last);
+
+function renderStats() {
+  const all = [...S.values()];
+  const sum = (k) => all.reduce((a, s) => a + s.n[k], 0);
+  const ms = median(all.flatMap((s) => s.n.jevMs));
+  $("stats").innerHTML = `<span><b>${all.length}</b> sessions</span><span><b>${sum("calls")}</b> calls</span><span><b style="color:var(--deny)">${sum("blocked")}</b> blocked</span><span><b style="color:var(--warn)">${sum("instructed")}</b> instructed</span><span><b style="color:var(--accent)">${sum("jev")}</b> Jev calls${ms != null ? ` · p50 <b>${ms}</b> ms` : ""}</span>`;
+}
+
+function renderList() {
+  const list = visible();
+  if ($("follow").checked && list[0]) selected = list[0].id;
+  if (!selected && list[0]) selected = list[0].id;
+  $("list").innerHTML = list.map((s) => `
+    <div class="s-item ${s.id === selected ? "sel" : ""}" data-id="${esc(s.id)}">
+      <div class="s-top">${Date.now() - s.last < 20000 ? '<span class="pulse" title="live"></span>' : ""}<span class="chip agent">${esc(s.agent)}</span><span class="s-title">${esc(s.title || s.id)}</span></div>
+      <div class="s-meta"><span class="chip">${esc(s.source)}</span><span>${s.n.calls} calls</span><span class="d">⊘ ${s.n.blocked}</span><span class="i">✎ ${s.n.instructed}</span><span class="j">Jev ${s.n.jev}</span><span style="margin-left:auto">${ago(s.last)}</span></div>
+    </div>`).join("") || `<div class="s-item"><span class="s-meta">No sessions yet</span></div>`;
+}
+
+function jevHtml(d) {
+  return (d.jev ?? []).map((j) => {
+    if (j.error) return `<div class="jev-err">Jev error: ${esc(j.error)} · ${j.ms ?? "?"} ms</div>`;
+    return `<div class="jev">${Object.entries(j.answers ?? {}).map(([id, p]) => {
+      const q = j.questions?.[id] ?? {};
+      const num = typeof p === "number" ? p : null;
+      const pct = num == null ? 0 : q.type === "score" ? Math.min(100, num * 25) : Math.round(num * 100);
+      return `<div class="jq"><span class="qid" title="${esc(id)}">${esc(id)}${q.type && q.type !== "noul" ? ` <span class="chip">${esc(q.type)}</span>` : ""}</span>
+        <span class="bar ${d.decision === "deny" ? "hot" : ""}"><i style="width:${pct}%"></i></span><span class="p">${num == null ? esc(p) : num.toFixed(2)}</span>
+        ${q.instructions ? `<span class="instr">${esc(q.instructions)}</span>` : ""}</div>`;
+    }).join("")}<div class="ms" style="margin-left:0">Jev ${j.ms ?? "?"} ms</div></div>`;
+  }).join("");
+}
+
+function callHtml(c) {
+  const [cls, glyph, label] = status(c);
+  const argText = typeof c.args === "string" ? c.args : JSON.stringify(c.args ?? {});
+  const exp = c.expect ? (c.result?.ok === undefined ? "" : `<span class="pill ${c.result.ok ? "exp-ok" : "exp-bad"}">${c.result.ok ? "✓" : "✗"} expect ${esc(c.expect)}</span>`) : "";
+  const decs = c.decisions.map((d) => `
+    <div class="dec ${esc(d.decision)}">
+      <div class="d-top"><span class="pill ${d.decision === "deny" ? "blocked" : d.decision === "instruct" ? "instructed" : d.decision === "error" ? "error" : "ok"}">${d.decision === "error" ? "policy threw → allowed" : esc(d.decision)}</span><span class="d-pol">${esc(d.policy)}</span><span class="ms">${d.ms ?? "?"} ms</span></div>
+      ${d.reason ? `<div class="d-reason">${esc(d.reason)}</div>` : ""}
+      ${jevHtml(d)}
+    </div>`).join("");
+  const isOpen = open.has(c.id);
+  return `<div class="row"><div class="gut" style="color:var(--${cls === "blocked" ? "deny" : cls === "ok" ? "ok" : cls === "pending" ? "muted" : "warn"})">${glyph}</div>
+    <div class="card call ${cls}">
+      <div class="c-head" data-open="${esc(c.id)}"><span class="c-tool">${esc(c.tool)}</span><span class="c-args">${esc(argText)}</span>${exp}<span class="pill ${cls}">${label}</span></div>
+      ${decs}
+      ${isOpen ? `<div class="c-body"><div class="lbl">input</div><pre class="json">${esc(JSON.stringify(c.args, null, 2))}</pre>
+        ${c.result ? `<div class="lbl">${c.result.blocked ? "what the agent was told" : "output"}</div><pre class="json res ${c.result.blocked ? "blocked" : ""}">${esc(c.result.text)}</pre>` : ""}
+        ${c.result?.note ? `<div class="note">note to agent: ${esc(c.result.note)}</div>` : ""}</div>`
+        : c.result?.blocked && !c.decisions.length ? `<div class="c-body"><span class="res blocked">${esc(c.result.text)}</span></div>` : ""}
+    </div></div>`;
+}
+
+function renderTrace() {
+  const el = $("trace");
+  const s = S.get(selected);
+  if (!s) {
+    el.innerHTML = `<div class="empty"><h2 style="margin:0;color:var(--ink)">Waiting for traces</h2>
+      <p>Run an agent inside the container and it appears here live, one tool call at a time, with your policies' interjections and Jev's answers inline.</p>
+      <p><code>container/jev run itsm ITSM-02</code> for a real run (Claude Code + Haiku 4.5)</p>
+      <p><code>container/jev test</code> for offline rig scenarios (no LLM)</p>
+      <p>Decisions and Jev calls show up for policies wrapped in <code>traced(...)</code> from <code>trace.mjs</code>.</p></div>`;
+    return;
+  }
+  const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+  const only = $("onlyInter").checked;
+  const ms = median(s.n.jevMs);
+  const dur = Math.max(0, Math.round((s.last - s.start) / 1000));
+  const items = s.items.filter((it) => !only || (it.kind === "call" && (it.decisions.length || it.result?.blocked)));
+  el.innerHTML = `<div class="t-head"><h1>${esc(s.title || s.id)}</h1>
+    <div class="t-sub"><span class="chip agent">${esc(s.agent)}</span><span class="chip">${esc(s.source)}</span><span class="mono">${esc(s.id.slice(0, 36))}</span>
+      <span><b>${s.n.calls}</b> calls</span><span><b style="color:var(--deny)">${s.n.blocked}</b> blocked</span><span><b style="color:var(--warn)">${s.n.instructed}</b> instructed</span>
+      <span><b style="color:var(--accent)">${s.n.jev}</b> Jev${ms != null ? ` · p50 ${ms} ms` : ""}</span><span>${dur}s</span><span>${new Date(s.start).toLocaleTimeString()}</span></div></div>
+    <div class="tl">${items.map((it) => {
+      if (it.kind === "prompt") return `<div class="row"><div class="gut">›</div><div class="card bubble user"><div class="lbl">task</div>${esc(it.text)}</div></div>`;
+      if (it.kind === "text") return `<div class="row"><div class="gut">✦</div><div class="card bubble"><div class="lbl">agent</div>${esc(it.text)}</div></div>`;
+      if (it.kind === "orphan-result") return `<div class="row"><div class="gut">·</div><div class="card bubble"><div class="lbl">result</div>${esc(it.text.slice(0, 400))}</div></div>`;
+      return callHtml(it);
+    }).join("")}</div>`;
+  if (nearBottom) el.scrollTop = el.scrollHeight;
+}
+
+function frame() {
+  if (dirty) { dirty = false; renderStats(); renderList(); renderTrace(); }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+setInterval(() => { dirty = true; }, 5000); // refresh "ago" + live dots
+
+$("list").addEventListener("click", (e) => {
+  const it = e.target.closest(".s-item[data-id]");
+  if (!it) return;
+  selected = it.dataset.id; $("follow").checked = false; dirty = true;
+});
+$("trace").addEventListener("click", (e) => {
+  const h = e.target.closest("[data-open]");
+  if (!h) return;
+  const id = h.dataset.open; open.has(id) ? open.delete(id) : open.add(id); dirty = true;
+});
+for (const id of ["follow", "onlyInter", "showRig"]) $(id).addEventListener("change", () => { dirty = true; });
+
+function connect() {
+  const es = new EventSource("/events");
+  es.onopen = () => { $("conn").textContent = "live"; $("conn").classList.add("on"); };
+  es.onmessage = (m) => { try { onEvent(JSON.parse(m.data)); } catch (e) { console.error(e); } };
+  es.onerror = () => { $("conn").textContent = "reconnecting…"; $("conn").classList.remove("on"); };
+}
+connect();
+</script>
+</body>
+</html>

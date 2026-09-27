@@ -4,3 +4,7 @@ node_modules/
 logs/
 *.log
 .DS_Store
+
+# Organisers' kit and the failproofai source checkout, when placed inside this repo
+jev-buildathon
+failproofai/
