@@ -7,7 +7,7 @@
 import { mkdirSync, writeFileSync, readdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
-const OUT = "/Users/aman.nambisan/Desktop/code/buildathon/harness/scenarios/finance";
+const OUT = new URL(".", import.meta.url).pathname.replace(/\/$/, "");
 mkdirSync(OUT, { recursive: true });
 for (const f of readdirSync(OUT)) if (f.endsWith(".json")) unlinkSync(join(OUT, f));
 
