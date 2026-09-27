@@ -9,6 +9,8 @@
 #   container/jev test [scenario]   offline policy rig (no LLM)
 #   container/jev run itsm ITSM-02  a real agent run (Claude Code + Haiku 4.5, policies enforced, session uploaded)
 #   container/jev replay itsm       replay the newest run through your current policies
+#   container/jev unlock <phrase>   open the sealed final round (the passphrase announced at T-40)
+#   container/jev finals itsm [N]   run every [final] task of an agent exactly once, N in parallel (default 4)
 #   container/jev live              (re)start the live trace viewer -> http://localhost:4777
 #   container/jev shell             bash inside the container
 #   container/jev logs              daemon + systemctl-shim logs
@@ -39,6 +41,46 @@ ex() {
   docker exec ${tty[@]+"${tty[@]}"} -u node -w /work "$BOX" "$@"
 }
 
+# Every final-round session counts (averaged), so each [final] task runs once. A task that already
+# has a transcript is skipped unless --again is given. Run output goes to finals/<agent>/<task>.txt.
+finals() {
+  local agent="${1:-}" par="${2:-4}" again="${3:-}"
+  [[ "$agent" =~ ^[a-z]+$ ]] || { echo "usage: container/jev finals <agent> [parallel=4] [--again]" >&2; exit 2; }
+  [[ "$par" =~ ^[1-8]$ ]] || { echo "parallel must be 1-8" >&2; exit 2; }
+  local dir="$ROOT/jev-buildathon/agents/$agent-agent" out="$ROOT/finals/$agent"
+  [ -f "$dir/final.json" ] || { echo "Final round not unlocked yet: container/jev unlock <passphrase>" >&2; exit 2; }
+  local f n=0
+  for f in "$dir"/.failproofai/policies/*policies.mjs; do
+    [ -f "$f" ] || continue
+    ex node --check "/work/${f#"$ROOT"/}" || { echo "syntax error in $f: fix it before running finals" >&2; exit 2; }
+    n=$((n + $(grep -c "customPolicies.add" "$f" || true)))
+  done
+  [ "$n" -gt 0 ] || { echo "No policies registered for $agent: refusing to run finals on the untouched agent" >&2; exit 2; }
+  local ids todo=()
+  ids=$(ex node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).tasks.map((t) => t.id).join(" "))' "/work/jev-buildathon/agents/$agent-agent/final.json")
+  for id in $ids; do
+    [[ "$id" =~ ^[A-Za-z0-9-]+$ ]] || { echo "skip odd task id: $id" >&2; continue; }
+    if [ "$again" != "--again" ] && ls "$dir/.runs/transcripts/$id-claude-"*.jsonl >/dev/null 2>&1; then
+      echo "skip  $id (already run; add --again to run it again)"; continue
+    fi
+    todo+=("$id")
+  done
+  [ "${#todo[@]}" -gt 0 ] || { echo "Nothing to run."; return 0; }
+  echo "$agent: ${#todo[@]} final task(s), $n policies loaded, $par in parallel. Watch http://localhost:4777"
+  mkdir -p "$out"; up
+  printf '%s\n' "${todo[@]}" | xargs -P "$par" -n 1 sh -c '
+    echo "start $3"
+    docker exec -u node -w /work "$0" node jev-buildathon/bin/buildathon.mjs run "$1" "$3" >"$2/$3.txt" 2>&1
+    echo "done  $3 (exit $?)"' "$BOX" "$agent" "$out"
+  echo; echo "Summary (full output in finals/$agent/):"
+  for id in "${todo[@]}"; do
+    local o="$out/$id.txt"
+    printf '  %-12s executed %2s  failed %2s  blocked %2s  | %s\n' "$id" \
+      "$(grep -c '•' "$o" || true)" "$(grep -c '✗' "$o" || true)" "$(grep -c '⊘' "$o" || true)" \
+      "$(grep -m1 'Agent:' "$o" | cut -c1-110 || true)"
+  done
+}
+
 cmd="${1:-shell}"; shift || true
 case "$cmd" in
   build)
@@ -58,6 +100,9 @@ case "$cmd" in
   test)    ex node harness/scenario.mjs itsm "$@" ;;
   run)     ex node jev-buildathon/bin/buildathon.mjs run "$@" ;;
   replay)  ex node harness/replay.mjs "${1:-itsm}" latest ;;
+  unlock)  [ -n "${1:-}" ] || { echo "usage: container/jev unlock <passphrase>" >&2; exit 2; }
+           ex node jev-buildathon/bin/buildathon.mjs unlock "$1" ;;
+  finals)  finals "$@" ;;
   shell)   ex bash ;;
   live)    up
            docker exec -u node "$BOX" sh -c 'pkill -f "[h]arness/live/server.mjs" || true'
@@ -66,5 +111,5 @@ case "$cmd" in
   logs)    ex sh -c 'tail -n 40 /tmp/failproofaid@node.log 2>/dev/null; echo "--- shim"; tail -n 20 /tmp/systemctl-shim.log 2>/dev/null' ;;
   down)    docker stop "$BOX" >/dev/null && echo stopped ;;
   reset)   docker rm -f "$BOX" >/dev/null 2>&1 || true; docker volume rm "$VOLUME" ;;
-  *) sed -n '2,18p' "$0"; exit 2 ;;
+  *) sed -n '2,20p' "$0"; exit 2 ;;
 esac
