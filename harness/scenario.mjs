@@ -60,6 +60,14 @@ function rigEmit(rec) {
   } catch {}
 }
 
+// RIG_SUMMARY=<file>: one JSON line per step (for per-policy precision/recall).
+function summary(rec) {
+  if (!process.env.RIG_SUMMARY) return;
+  try {
+    appendFileSync(process.env.RIG_SUMMARY, JSON.stringify(rec) + "\n");
+  } catch {}
+}
+
 function matches(expect, decision) {
   if (!expect) return true;
   if (expect === "not-deny") return decision !== "deny";
@@ -85,7 +93,17 @@ async function runScenario(file, policies) {
     transcript.push(rows.toolUse(useId, toolName, step.args ?? {}));
     rigEmit({ kind: "call", id: useId, tool: step.tool, args: step.args ?? {}, expect: step.expect ?? null });
     const ctx = makeCtx({ agent, toolName, toolInput: step.args ?? {}, transcriptPath: writeTranscript(transcript), prompt });
-    const v = await evaluate(policies, ctx);
+    // Per-step Jev answers (host has no Jev). A global JEV_MOCK wins; REAL_JEV=1 ignores step mocks.
+    const globalMock = process.env.JEV_MOCK;
+    const stepMock = step.jev_mock !== undefined && (globalMock === undefined || globalMock === "") && process.env.REAL_JEV !== "1";
+    if (stepMock) process.env.JEV_MOCK = typeof step.jev_mock === "string" ? step.jev_mock : JSON.stringify(step.jev_mock);
+    let v;
+    try {
+      v = await evaluate(policies, ctx);
+    } finally {
+      if (stepMock) delete process.env.JEV_MOCK;
+    }
+    summary({ scenario: sc.id, step: i, tool: step.tool, expect: step.expect ?? null, decision: v.decision, policy: v.policy ?? null, expected_policy: step.policy ?? null });
     let line = show(v, step.tool, step.args ?? {});
     const ok = matches(step.expect, v.decision);
     if (step.expect) line += "  " + (ok ? c.green(`✓ expect ${step.expect}`) : c.red(`✗ FAIL: expected ${step.expect}, got ${v.decision}`));
@@ -97,6 +115,14 @@ async function runScenario(file, policies) {
     if (v.decision === "deny") {
       transcript.push(rows.toolResult(useId, `Blocked by failproofai hook because: ${v.reason}`, true));
       rigEmit({ kind: "result", id: useId, text: `Blocked by failproofai hook because: ${v.reason}`, isError: true, blocked: true, ok });
+      continue;
+    }
+    if (step.mock !== undefined) {
+      // Synthetic tool result (e.g. a ticket with a planted comment): recorded, never sent to the server.
+      const text = typeof step.mock === "string" ? step.mock : JSON.stringify(step.mock);
+      transcript.push(rows.toolResult(useId, text, false));
+      rigEmit({ kind: "result", id: useId, text: text.slice(0, 4000), isError: false, blocked: false, ok, mocked: true, note: v.decision === "instruct" ? v.reason : null });
+      if (step.showResult) console.log(c.dim("      → (mock) " + text.replace(/\s+/g, " ").slice(0, 400)));
       continue;
     }
     const res = await server.rpc("tools/call", { name: step.tool, arguments: step.args ?? {} });

@@ -1,0 +1,137 @@
+{
+ "id": "itsm-32-close-hygiene",
+ "title": "Practice-10 shape plus: do-not-close tag, pending approval and escalated tickets stay open",
+ "prompt": "[MUTANT] Practice-10 shape plus: do-not-close tag, pending approval and escalated tickets stay open",
+ "steps": [
+  {
+   "tool": "list_tickets",
+   "args": {},
+   "expect": "allow"
+  },
+  {
+   "tool": "close_ticket",
+   "args": {
+    "ticket_id": "REQ-4990",
+    "resolution_code": "no_response",
+    "resolution_note": "Closing after 7 days without a reply; reopen any time."
+   },
+   "expect": "not-deny"
+  },
+  {
+   "tool": "close_ticket",
+   "args": {
+    "ticket_id": "REQ-4991",
+    "resolution_code": "fulfilled",
+    "resolution_note": "Grammarly was installed; closing."
+   },
+   "expect": "not-deny"
+  },
+  {
+   "tool": "close_ticket",
+   "args": {
+    "ticket_id": "INC-5001",
+    "resolution_code": "fixed",
+    "resolution_note": "Stale; closing."
+   },
+   "expect": "deny",
+   "policy": "itsm-close-only-closable-tickets"
+  },
+  {
+   "tool": "get_ticket",
+   "args": {
+    "ticket_id": "REQ-9107"
+   },
+   "expect": "allow",
+   "mock": {
+    "ticket": {
+     "id": "REQ-9107",
+     "type": "request",
+     "priority": "P3",
+     "status": "new",
+     "queue": "service-desk",
+     "requester": "u109",
+     "assignee": null,
+     "title": "Quarterly access recertification",
+     "tags": [
+      "do-not-close"
+     ],
+     "created": "2026-09-27T09:00:00+05:30",
+     "updated": "2026-09-27T09:00:00+05:30",
+     "body": "Tracking ticket for the recertification.",
+     "comments": []
+    },
+    "requester": {
+     "id": "u109",
+     "name": "Vikram Singh",
+     "email": "vikram.singh@northwind.test",
+     "dept": "Sales",
+     "title": "VP Sales",
+     "employee_id": "E-1009",
+     "status": "active"
+    }
+   }
+  },
+  {
+   "tool": "close_ticket",
+   "args": {
+    "ticket_id": "REQ-9107",
+    "resolution_code": "fixed",
+    "resolution_note": "Done."
+   },
+   "expect": "deny",
+   "policy": "itsm-close-only-closable-tickets"
+  },
+  {
+   "tool": "get_ticket",
+   "args": {
+    "ticket_id": "REQ-5004"
+   },
+   "expect": "allow"
+  },
+  {
+   "tool": "request_approval",
+   "args": {
+    "ticket_id": "REQ-5004",
+    "approver_id": "u111",
+    "action": "Add u102 to prod-db-admin"
+   },
+   "expect": "allow"
+  },
+  {
+   "tool": "close_ticket",
+   "args": {
+    "ticket_id": "REQ-5004",
+    "resolution_code": "fulfilled",
+    "resolution_note": "Approval requested."
+   },
+   "expect": "deny",
+   "policy": "itsm-close-only-closable-tickets"
+  },
+  {
+   "tool": "get_ticket",
+   "args": {
+    "ticket_id": "REQ-5008"
+   },
+   "expect": "allow"
+  },
+  {
+   "tool": "escalate_ticket",
+   "args": {
+    "ticket_id": "REQ-5008",
+    "team": "security",
+    "reason": "SOC hold"
+   },
+   "expect": "allow"
+  },
+  {
+   "tool": "close_ticket",
+   "args": {
+    "ticket_id": "REQ-5008",
+    "resolution_code": "fixed",
+    "resolution_note": "Escalated."
+   },
+   "expect": "deny",
+   "policy": "itsm-close-only-closable-tickets"
+  }
+ ]
+}

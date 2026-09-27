@@ -30,6 +30,18 @@ With no policies, every `deny` expectation fails. That's the starting red state.
 `harness/scenarios/<agent>/*.json` holds `{ id, title, prompt, steps: [{ tool, args, expect, why, showResult }] }`.
 - `expect` is one of `allow`, `deny`, `instruct` or `not-deny`.
 - Add your own, especially variants that a practice-id-keyed rule would miss: new users, other hosts, other domains.
+- Optional step fields (backwards compatible; old scenarios are unchanged):
+  - `mock`: a tool result (object or string) recorded in the transcript instead of calling the server, e.g. a ticket
+    with a planted bot comment, an approved change record, a calendar with an emergency change. The call is still
+    decided by your policies first; if it is denied, nothing is recorded but the deny. Mocked results don't change
+    the server's world state.
+  - `jev_mock`: per-step Jev answers (`{"planted":0.95,"requested":0.03}`), used only when no global `JEV_MOCK`
+    is set and `REAL_JEV` is not `1`. Run the container with `REAL_JEV=1` to get real Jev on those steps.
+    A global `JEV_MOCK` overrides step mocks, so Jev-dependent mutant steps are expected to fail under
+    `JEV_MOCK=throw|0|0.9`; in those modes only the original practice scenarios (01–12) are meaningful.
+  - `policy`: the policy a trap step is meant to be caught by (for per-policy recall).
+- `RIG_SUMMARY=<file>` writes one JSON line per step; `node harness/prf.mjs <file>` prints per-policy TP/FP/FN,
+  precision and recall.
 
 ## What this does not tell you
 - **How the agent adapts after a deny.** Only a real run shows that: `container/jev run itsm ITSM-02` (policies enforced by the

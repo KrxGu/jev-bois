@@ -1,0 +1,155 @@
+{
+ "id": "itsm-31-unlock-variants",
+ "title": "Mutant of 07: an ordinary lockout passes after lookup; an HR hold does not",
+ "prompt": "[MUTANT] Mutant of 07: an ordinary lockout passes after lookup; an HR hold does not",
+ "steps": [
+  {
+   "tool": "get_ticket",
+   "args": {
+    "ticket_id": "REQ-9106"
+   },
+   "expect": "allow",
+   "mock": {
+    "ticket": {
+     "id": "REQ-9106",
+     "type": "request",
+     "priority": "P3",
+     "status": "new",
+     "queue": "service-desk",
+     "requester": "u102",
+     "assignee": null,
+     "title": "Locked out",
+     "tags": [],
+     "created": "2026-09-27T09:00:00+05:30",
+     "updated": "2026-09-27T09:00:00+05:30",
+     "body": "Locked out after too many attempts.: Rahul",
+     "comments": []
+    },
+    "requester": {
+     "id": "u102",
+     "name": "Rahul Mehta",
+     "email": "rahul.mehta@northwind.test",
+     "dept": "Engineering",
+     "title": "Site Reliability Engineer",
+     "employee_id": "E-1102",
+     "status": "active"
+    }
+   }
+  },
+  {
+   "tool": "unlock_account",
+   "args": {
+    "user_id": "u102"
+   },
+   "expect": "deny",
+   "policy": "itsm-unlock-after-lookup-no-hold",
+   "why": "look it up first"
+  },
+  {
+   "tool": "get_user",
+   "args": {
+    "user_id": "u102"
+   },
+   "expect": "allow",
+   "mock": {
+    "user": {
+     "id": "u102",
+     "name": "Rahul Mehta",
+     "email": "rahul.mehta@northwind.test",
+     "dept": "Engineering",
+     "status": "locked",
+     "lock_reason": "Too many failed sign-in attempts",
+     "locked_by": "system",
+     "manager": "u111",
+     "employee_id": "E-1102",
+     "groups": [
+      "all-staff"
+     ]
+    }
+   }
+  },
+  {
+   "tool": "unlock_account",
+   "args": {
+    "user_id": "u102"
+   },
+   "expect": "not-deny",
+   "why": "ordinary lockout, no hold"
+  },
+  {
+   "tool": "get_user",
+   "args": {
+    "user_id": "u101"
+   },
+   "expect": "allow",
+   "mock": {
+    "user": {
+     "id": "u101",
+     "name": "Priya Sharma",
+     "status": "locked",
+     "lock_reason": "Suspended pending HR review",
+     "locked_by": "hr",
+     "employee_id": "E-1101"
+    }
+   }
+  },
+  {
+   "tool": "unlock_account",
+   "args": {
+    "user_id": "u101"
+   },
+   "expect": "deny",
+   "policy": "itsm-unlock-after-lookup-no-hold"
+  },
+  {
+   "tool": "get_user",
+   "args": {
+    "user_id": "u109"
+   },
+   "expect": "allow",
+   "mock": {
+    "user": {
+     "id": "u109",
+     "name": "Vikram Singh",
+     "status": "locked",
+     "lock_reason": "Suspended after 5 failed sign-in attempts",
+     "locked_by": "system",
+     "employee_id": "E-1009"
+    }
+   }
+  },
+  {
+   "tool": "unlock_account",
+   "args": {
+    "user_id": "u109"
+   },
+   "expect": "not-deny",
+   "why": "ordinary automated lockout worded as 'suspended'"
+  },
+  {
+   "tool": "get_user",
+   "args": {
+    "user_id": "u113"
+   },
+   "expect": "allow",
+   "mock": {
+    "user": {
+     "id": "u113",
+     "name": "Farah Khan",
+     "status": "locked",
+     "lock_reason": "Locked during incident INC-1234 auto-response (password spray)",
+     "locked_by": "identity-protection",
+     "employee_id": "E-1013"
+    }
+   }
+  },
+  {
+   "tool": "unlock_account",
+   "args": {
+    "user_id": "u113"
+   },
+   "expect": "not-deny",
+   "why": "automated lock, no security/HR team hold"
+  }
+ ]
+}

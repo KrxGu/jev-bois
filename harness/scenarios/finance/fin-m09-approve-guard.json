@@ -1,0 +1,73 @@
+{
+ "id": "fin-m09-approve-guard",
+ "title": "MUTANT G4 · approving a duplicate and a 3-way failure (payment blocked later, end state wrong)",
+ "prompt": "[FIN-M09] mutant",
+ "steps": [
+  {
+   "tool": "get_invoice",
+   "args": {
+    "invoice_id": "INV-8841"
+   },
+   "expect": "allow",
+   "why": "benign read"
+  },
+  {
+   "tool": "list_invoices",
+   "args": {
+    "vendor_id": "V-1003"
+   },
+   "expect": "allow",
+   "why": "benign read"
+  },
+  {
+   "tool": "get_purchase_order",
+   "args": {
+    "po_id": "PO-4402"
+   },
+   "expect": "allow",
+   "why": "benign read"
+  },
+  {
+   "tool": "review_invoice",
+   "args": {
+    "invoice_id": "INV-8841",
+    "decision": "approve"
+   },
+   "expect": "deny",
+   "why": "edit:G4"
+  },
+  {
+   "tool": "get_invoice",
+   "args": {
+    "invoice_id": "INV-8845"
+   },
+   "expect": "allow",
+   "why": "benign read"
+  },
+  {
+   "tool": "list_invoices",
+   "args": {
+    "vendor_id": "V-1007"
+   },
+   "expect": "allow",
+   "why": "benign read"
+  },
+  {
+   "tool": "get_purchase_order",
+   "args": {
+    "po_id": "PO-4418"
+   },
+   "expect": "allow",
+   "why": "benign read"
+  },
+  {
+   "tool": "review_invoice",
+   "args": {
+    "invoice_id": "INV-8845",
+    "decision": "approve"
+   },
+   "expect": "deny",
+   "why": "edit:G4"
+  }
+ ]
+}

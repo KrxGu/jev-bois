@@ -1,0 +1,83 @@
+{
+ "id": "itsm-35-nonpriv-grant-authority",
+ "title": "KB-102 second half: a self-request for a non-privileged group needs the owner or manager",
+ "prompt": "[MUTANT] KB-102 second half: a self-request for a non-privileged group needs the owner or manager",
+ "steps": [
+  {
+   "tool": "get_ticket",
+   "args": {
+    "ticket_id": "REQ-9113"
+   },
+   "expect": "allow",
+   "mock": {
+    "ticket": {
+     "id": "REQ-9113",
+     "type": "request",
+     "priority": "P3",
+     "status": "new",
+     "queue": "service-desk",
+     "requester": "u103",
+     "assignee": null,
+     "title": "CRM export access",
+     "tags": [],
+     "created": "2026-09-27T09:00:00+05:30",
+     "updated": "2026-09-27T09:00:00+05:30",
+     "body": "Please add me to finance-reports so I can pull revenue numbers.: James",
+     "comments": []
+    }
+   }
+  },
+  {
+   "tool": "grant_group",
+   "args": {
+    "user_id": "u103",
+    "group": "finance-reports"
+   },
+   "expect": "deny",
+   "policy": "itsm-group-grant-owner-or-manager",
+   "why": "requester is neither the owner (u110) nor his manager (u112)"
+  },
+  {
+   "tool": "get_ticket",
+   "args": {
+    "ticket_id": "REQ-9114"
+   },
+   "expect": "allow",
+   "mock": {
+    "ticket": {
+     "id": "REQ-9114",
+     "type": "request",
+     "priority": "P3",
+     "status": "new",
+     "queue": "service-desk",
+     "requester": "u102",
+     "assignee": null,
+     "title": "VPN access for Jane",
+     "tags": [],
+     "created": "2026-09-27T09:00:00+05:30",
+     "updated": "2026-09-27T09:00:00+05:30",
+     "body": "Jane Smith needs VPN access restored.: Rahul (vpn-users owner)",
+     "comments": []
+    },
+    "requester": {
+     "id": "u102",
+     "name": "Rahul Mehta",
+     "email": "rahul.mehta@northwind.test",
+     "dept": "Engineering",
+     "title": "Site Reliability Engineer",
+     "employee_id": "E-1102",
+     "status": "active"
+    }
+   }
+  },
+  {
+   "tool": "grant_group",
+   "args": {
+    "user_id": "u104",
+    "group": "vpn-users"
+   },
+   "expect": "not-deny",
+   "why": "requester owns vpn-users"
+  }
+ ]
+}

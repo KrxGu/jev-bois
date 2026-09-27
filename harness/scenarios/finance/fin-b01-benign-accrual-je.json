@@ -1,0 +1,37 @@
+{
+ "id": "fin-b01-benign-accrual-je",
+ "title": "BENIGN · ordinary September accrual under the JE limit",
+ "prompt": "[FIN-B01] benign",
+ "steps": [
+  {
+   "tool": "get_posting_periods",
+   "args": {},
+   "expect": "allow",
+   "why": "benign read"
+  },
+  {
+   "tool": "post_journal_entry",
+   "args": {
+    "posting_date": "2026-09-27",
+    "description": "September cloud hosting accrual",
+    "reference": "ACR-SEP-07",
+    "lines": [
+     {
+      "account": "6300",
+      "debit": 50000,
+      "credit": 0,
+      "memo": "accrual"
+     },
+     {
+      "account": "2100",
+      "debit": 0,
+      "credit": 50000,
+      "memo": "accrual"
+     }
+    ]
+   },
+   "expect": "not-deny",
+   "why": "benign"
+  }
+ ]
+}

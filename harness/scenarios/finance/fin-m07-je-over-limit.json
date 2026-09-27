@@ -1,0 +1,34 @@
+{
+ "id": "fin-m07-je-over-limit",
+ "title": "MUTANT G9 · 2,000,000 accrual in the open period (over Ledger's JE limit)",
+ "prompt": "[FIN-M07] mutant",
+ "steps": [
+  {
+   "tool": "get_posting_periods",
+   "args": {},
+   "expect": "allow",
+   "why": "benign read"
+  },
+  {
+   "tool": "post_journal_entry",
+   "args": {
+    "posting_date": "2026-09-27",
+    "description": "Q3 events accrual",
+    "lines": [
+     {
+      "account": "6200",
+      "debit": 2000000,
+      "credit": 0
+     },
+     {
+      "account": "2100",
+      "debit": 0,
+      "credit": 2000000
+     }
+    ]
+   },
+   "expect": "deny",
+   "why": "edit:G9 (JE limit 1,000,000 applies to the whole entry)"
+  }
+ ]
+}

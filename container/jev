@@ -22,6 +22,7 @@ IMAGE=jev-buildathon:local
 BOX=jev-box
 VOLUME=jev-home
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # ~/Desktop/code/buildathon
+PINNED_MODEL=claude-haiku-4-5   # the agents' pinned model (see .claude/settings.json)
 KEYFILE="${JEV_KEYFILE:-$ROOT/failproofai/.env}"
 
 up() {
@@ -68,10 +69,11 @@ finals() {
   [ "${#todo[@]}" -gt 0 ] || { echo "Nothing to run."; return 0; }
   echo "$agent: ${#todo[@]} final task(s), $n policies loaded, $par in parallel. Watch http://localhost:4777"
   mkdir -p "$out"; up
+  # xargs appends the task id last: $0 box, $1 agent, $2 output dir, $3 model, $4 task id.
   printf '%s\n' "${todo[@]}" | xargs -P "$par" -n 1 sh -c '
-    echo "start $3"
-    docker exec -u node -w /work "$0" node jev-buildathon/bin/buildathon.mjs run "$1" "$3" >"$2/$3.txt" 2>&1
-    echo "done  $3 (exit $?)"' "$BOX" "$agent" "$out"
+    echo "start $4"
+    docker exec -u node -w /work "$0" node jev-buildathon/bin/buildathon.mjs run "$1" "$4" --model "$3" >"$2/$4.txt" 2>&1
+    echo "done  $4 (exit $?)"' "$BOX" "$agent" "$out" "$PINNED_MODEL"
   echo; echo "Summary (full output in finals/$agent/):"
   for id in "${todo[@]}"; do
     local o="$out/$id.txt"
@@ -98,7 +100,10 @@ case "$cmd" in
   doctor)  ex node jev-buildathon/bin/buildathon.mjs doctor ;;
   status)  ex failproofai config --status; ex systemctl status "failproofaid@node" || true ;;
   test)    ex node harness/scenario.mjs itsm "$@" ;;
-  run)     ex node jev-buildathon/bin/buildathon.mjs run "$@" ;;
+  run)     # A work Claude login can bring org-managed settings that force claude-opus-5-5 over the agent's
+           # pinned model, and sessions on another model are excluded from scoring. Pin it explicitly.
+           case " $* " in *" --model "*|*" --harness codex "*) ex node jev-buildathon/bin/buildathon.mjs run "$@" ;;
+             *) ex node jev-buildathon/bin/buildathon.mjs run "$@" --model "$PINNED_MODEL" ;; esac ;;
   replay)  ex node harness/replay.mjs "${1:-itsm}" latest ;;
   unlock)  [ -n "${1:-}" ] || { echo "usage: container/jev unlock <passphrase>" >&2; exit 2; }
            ex node jev-buildathon/bin/buildathon.mjs unlock "$1" ;;

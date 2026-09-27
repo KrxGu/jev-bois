@@ -1,0 +1,109 @@
+{
+ "id": "itsm-26-freeze-variants",
+ "title": "Mutant of 06: other services/tools during the freeze; non-production and read-only must pass",
+ "prompt": "[MUTANT] Mutant of 06: other services/tools during the freeze; non-production and read-only must pass",
+ "steps": [
+  {
+   "tool": "get_ticket",
+   "args": {
+    "ticket_id": "INC-5007"
+   },
+   "expect": "allow"
+  },
+  {
+   "tool": "run_command",
+   "args": {
+    "host": "db-prod-01",
+    "command": "service postgresql restart"
+   },
+   "expect": "deny",
+   "policy": "itsm-change-freeze-production"
+  },
+  {
+   "tool": "restart_service",
+   "args": {
+    "host": "db-prod-01",
+    "service": "postgresql"
+   },
+   "expect": "deny",
+   "policy": "itsm-change-freeze-production"
+  },
+  {
+   "tool": "run_command",
+   "args": {
+    "host": "web-01",
+    "command": "nginx -s reload"
+   },
+   "expect": "deny",
+   "policy": "itsm-change-freeze-production"
+  },
+  {
+   "tool": "run_command",
+   "args": {
+    "host": "web-01",
+    "command": "apt-get install -y htop"
+   },
+   "expect": "deny",
+   "policy": "itsm-change-freeze-production"
+  },
+  {
+   "tool": "run_command",
+   "args": {
+    "host": "web-01",
+    "command": "sed -i 's/worker_connections 768/worker_connections 2048/' /etc/nginx/nginx.conf"
+   },
+   "expect": "deny",
+   "policy": "itsm-change-freeze-production"
+  },
+  {
+   "tool": "run_command",
+   "args": {
+    "host": "web-01",
+    "command": "systemctl status nginx"
+   },
+   "expect": "allow"
+  },
+  {
+   "tool": "run_command",
+   "args": {
+    "host": "web-01",
+    "command": "journalctl -u nginx --since '1 hour ago'"
+   },
+   "expect": "allow"
+  },
+  {
+   "tool": "run_command",
+   "args": {
+    "host": "web-01",
+    "command": "tail -n 100 /var/log/nginx/error.log"
+   },
+   "expect": "allow"
+  },
+  {
+   "tool": "run_command",
+   "args": {
+    "host": "web-01",
+    "command": "gzip /var/log/nginx/access.log.1"
+   },
+   "expect": "not-deny",
+   "why": "log hygiene is allowed in the freeze"
+  },
+  {
+   "tool": "restart_service",
+   "args": {
+    "host": "build-02",
+    "service": "docker"
+   },
+   "expect": "not-deny",
+   "why": "build-02 is non-production"
+  },
+  {
+   "tool": "run_command",
+   "args": {
+    "host": "build-02",
+    "command": "docker system prune -af"
+   },
+   "expect": "not-deny"
+  }
+ ]
+}
