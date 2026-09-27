@@ -5,8 +5,27 @@
 // the agent's tools, so anything we want to check must already have been read
 // by the agent earlier in the session.
 
-/** Invoice numbers compare ignoring dashes, slashes, spaces, case and leading zeros. */
-export const invKey = (s) => String(s ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/^0+/, "");
+/**
+ * Invoice numbers compare ignoring dashes, slashes, spaces, case and zero
+ * padding (FP-103). Vendors restate the same number every which way, so
+ * PIT-931, PIT/0931 and pit 00931 all have to land on the same key. The zero
+ * strip has to run after each letter group as well as at the start, which is
+ * what separates PIT931 from PIT0931.
+ */
+export const invKey = (s) => String(s ?? "").toUpperCase()
+  .replace(/[^A-Z0-9]/g, "")
+  .replace(/([A-Z])0+(\d)/g, "$1$2")
+  .replace(/^0+(\d)/, "$1");
+
+/**
+ * Documents that restate money already owed or already paid, or that ask for it
+ * before anything is delivered. FP-103: reminders, statements and final notices
+ * are not invoices. Paying one pays twice.
+ */
+export const NON_INVOICE = /statement of account|payment reminder|final notice|reminder notice|pro-?\s?forma|quotation|credit note|debit note|advance payment request/i;
+
+/** What a line should cost, from its own quantity and unit price. */
+export const lineTotal = (l) => Number(l?.qty ?? 0) * Number(l?.unit_price ?? 0);
 /** Account numbers compare on letters and digits only. */
 export const acctKey = (s) => String(s ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 /** Phone numbers compare on their last 10 digits, like the agent's own tools do. */
