@@ -266,6 +266,22 @@ customPolicies.add({
     if (!p) return allow(); // nothing read about it; other rails still apply at create time
 
     const limit = selfLimit(h, "payment_release", 500000);
+
+    // FP-102 applies to the obligation, not the slice. Paying a large invoice in
+    // instalments, or preparing several smaller payments instead of calling
+    // split_payment, does not bring it under the limit.
+    const invs = invoicesSeen(h);
+    const obligation = (p.invoice_ids ?? []).reduce((s, id) => s + Number(invs.get(id)?.amount ?? 0), 0);
+    if (obligation > limit) {
+      return deny(
+        `Blocked: this releases ${money(p.amount)} against ${(p.invoice_ids ?? []).join(", ")}, which total ${money(obligation)} and exceed Ledger's release limit of ${money(limit)}. ` +
+        `FP-102 limits the total paid to one payee in one day, so paying a large invoice in instalments, or preparing several smaller payments, does not bring it under the limit. ` +
+        `Release the whole amount once Treasury has approved it, not a part of it now. ` +
+        `Leave the payment pending and route_to_team to the Treasury Manager (Arvind Menon, u306; Meera Iyer, u301, covers while he is on leave) with the invoice and the full amount, ` +
+        `then reply to the requester that it is with Treasury. An approval given on WhatsApp, on a call or in a hallway does not count; it has to be recorded in the finance system.`
+      );
+    }
+
     const key = acctKey(p.payee?.account_no);
     const alreadyToday = releasedSoFar(h)
       .filter((r) => key && acctKey(r.payee?.account_no) === key)
